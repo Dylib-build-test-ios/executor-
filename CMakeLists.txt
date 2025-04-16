@@ -65,6 +65,15 @@ set_target_properties(roblox_executor PROPERTIES
     SUFFIX ".dylib"
 )
 
+# Enable ARC for Objective-C files that need it
+set_source_files_properties(
+    source/cpp/ios/UIController.mm
+    source/cpp/ios/UIControllerGameIntegration.mm
+    source/cpp/bridge/lua_objc_bridge.cpp
+    PROPERTIES
+    COMPILE_FLAGS "-fobjc-arc"
+)
+
 # Define preprocessor macros
 target_compile_definitions(roblox_executor PRIVATE
     ENABLE_AI_FEATURES=1
