@@ -142,16 +142,65 @@ namespace iOS {
         return (uintptr_t)info.dli_fbase;
     }
     
-    // Implement GetModuleSize - maintaining the same behavior as original
+    // Implement GetModuleSize with proper Mach-O parsing
     size_t MemoryAccess::GetModuleSize(const std::string& moduleName) {
-        std::cout << "GetModuleSize called for " << moduleName << std::endl;
-        return 0x100000; // Same as original stub implementation
+        uintptr_t moduleBase = GetModuleBase(moduleName);
+        if (moduleBase == 0) {
+            return 0;
+        }
+        
+        return GetModuleSize(moduleBase);
     }
     
-    // Implement GetModuleSize overload - maintaining the same behavior as original
+    // Implement GetModuleSize overload with Mach-O header parsing
     size_t MemoryAccess::GetModuleSize(uintptr_t moduleBase) {
-        std::cout << "GetModuleSize called for base address " << std::hex << moduleBase << std::endl;
-        return 0x100000; // Same as original stub implementation
+        if (moduleBase == 0) {
+            return 0;
+        }
+        
+        // Read the Mach-O header
+        struct mach_header_64 header;
+        if (!ReadMemory((void*)moduleBase, &header, sizeof(header))) {
+            std::cerr << "GetModuleSize: Failed to read Mach-O header at " << std::hex << moduleBase << std::endl;
+            return 0;
+        }
+        
+        // Verify it's a valid Mach-O file
+        if (header.magic != MH_MAGIC_64) {
+            std::cerr << "GetModuleSize: Invalid Mach-O magic at " << std::hex << moduleBase << std::endl;
+            return 0;
+        }
+        
+        // Parse the load commands to find segments
+        size_t totalSize = 0;
+        uintptr_t cmdOffset = moduleBase + sizeof(mach_header_64);
+        
+        for (uint32_t i = 0; i < header.ncmds; i++) {
+            struct load_command loadCmd;
+            if (!ReadMemory((void*)cmdOffset, &loadCmd, sizeof(loadCmd))) {
+                break;
+            }
+            
+            // Check if this is a segment command
+            if (loadCmd.cmd == LC_SEGMENT_64) {
+                struct segment_command_64 segmentCmd;
+                if (ReadMemory((void*)cmdOffset, &segmentCmd, sizeof(segmentCmd))) {
+                    // Add the segment size to the total
+                    totalSize = std::max(totalSize, (size_t)(segmentCmd.vmaddr + segmentCmd.vmsize - moduleBase));
+                }
+            }
+            
+            // Move to the next command
+            cmdOffset += loadCmd.cmdsize;
+        }
+        
+        // If we couldn't get the size from segments, use a reasonable default
+        if (totalSize == 0) {
+            std::cerr << "GetModuleSize: Could not determine size from Mach-O headers, using default" << std::endl;
+            totalSize = 16 * 1024 * 1024; // 16MB default as a reasonable estimate
+        }
+        
+        return totalSize;
     }
     
     // Implement ProtectMemory with robust functionality

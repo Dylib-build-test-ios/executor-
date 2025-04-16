@@ -69,7 +69,7 @@ set_target_properties(roblox_executor PROPERTIES
 set_source_files_properties(
     source/cpp/ios/UIController.mm
     source/cpp/ios/UIControllerGameIntegration.mm
-    source/cpp/bridge/lua_objc_bridge.cpp
+    source/cpp/bridge/lua_objc_bridge.mm
     PROPERTIES
     COMPILE_FLAGS "-fobjc-arc"
 )
