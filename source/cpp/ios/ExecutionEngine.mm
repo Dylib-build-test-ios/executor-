@@ -214,14 +214,114 @@ namespace iOS {
                     }
                 }
             } else {
-                // Jailbroken approach - use more powerful methods
-                // In a real implementation, we'd use Cycript/Frida/etc.
-                
-                // Simulate successful execution for demonstration purposes
-                resultSuccess = true;
-                resultOutput = "Script executed successfully in jailbroken mode";
-                
-                // TODO: Implement actual jailbroken execution
+                // Jailbroken approach - use advanced bypass methods
+                @autoreleasepool {
+                    // Create a dispatch group to wait for execution to complete
+                    dispatch_group_t group = dispatch_group_create();
+                    dispatch_group_enter(group);
+                    
+                    // Execute on a separate thread to avoid blocking
+                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                        // Initialize the execution integration with auto-select method
+                        std::shared_ptr<AdvancedBypass::ExecutionIntegration> executionIntegration = 
+                            std::make_shared<AdvancedBypass::ExecutionIntegration>(
+                                AdvancedBypass::ExecutionIntegration::Method::AutoSelect);
+                        
+                        if (executionIntegration->Initialize()) {
+                            // Set up output callback to capture output
+                            executionIntegration->SetOutputCallback([&resultOutput](const std::string& output) {
+                                resultOutput += output + "\n";
+                            });
+                            
+                            // Check if loadstring is needed for the script
+                            bool useLoadstring = preparedScript.find("loadstring") != std::string::npos ||
+                                               preparedScript.find("load(") != std::string::npos;
+                            
+                            // Execute with appropriate method
+                            AdvancedBypass::ExecutionIntegration::ExecutionResult result;
+                            
+                            if (useLoadstring) {
+                                // Use loadstring execution for scripts that require it
+                                result = executionIntegration->ExecuteWithLoadstring(
+                                    preparedScript, "ExecutionEngine_Script");
+                            } else {
+                                // Use regular execution for normal scripts
+                                result = executionIntegration->Execute(preparedScript);
+                            }
+                            
+                            // Process results
+                            resultSuccess = result.m_success;
+                            
+                            if (!result.m_error.empty()) {
+                                resultError = result.m_error;
+                            }
+                            
+                            if (!result.m_output.empty()) {
+                                resultOutput += result.m_output;
+                            }
+                            
+                            // Add method information
+                            resultOutput += "\n[Executed using: " + result.m_methodUsed + "]";
+                            
+                            // Log the execution
+                            std::cout << "ExecutionEngine: Jailbroken execution "
+                                      << (resultSuccess ? "succeeded" : "failed")
+                                      << " using method " << result.m_methodUsed
+                                      << " in " << result.m_executionTime << "ms" << std::endl;
+                            
+                            // Integrate HTTP functions if needed (for scripts that use HTTP API)
+                            if (preparedScript.find("http.") != std::string::npos && resultSuccess) {
+                                AdvancedBypass::IntegrateHttpFunctions(executionIntegration);
+                            }
+                        } else {
+                            // Failed to initialize execution integration
+                            resultSuccess = false;
+                            resultError = "Failed to initialize advanced execution methods";
+                            
+                            // Fall back to basic execution method for jailbroken devices
+                            try {
+                                // Create a simple execution context using Objective-C runtime
+                                Class luaClass = objc_getClass("Lua");
+                                if (luaClass) {
+                                    SEL executeSelector = sel_registerName("executeScript:");
+                                    if ([luaClass respondsToSelector:executeSelector]) {
+                                        NSString* script = [NSString stringWithUTF8String:preparedScript.c_str()];
+                                        id result = [luaClass performSelector:executeSelector withObject:script];
+                                        
+                                        if (result) {
+                                            resultSuccess = true;
+                                            if ([result isKindOfClass:[NSString class]]) {
+                                                resultOutput = [(NSString*)result UTF8String];
+                                            } else {
+                                                resultOutput = "Script executed successfully (no output)";
+                                            }
+                                        } else {
+                                            resultError = "Script execution failed with Lua class";
+                                        }
+                                    } else {
+                                        resultError = "Lua class does not implement executeScript method";
+                                    }
+                                } else {
+                                    resultError = "Lua class not found";
+                                }
+                            } catch (const std::exception& e) {
+                                // Handle exceptions from fallback method
+                                resultError = std::string("Exception in fallback execution: ") + e.what();
+                            }
+                        }
+                        
+                        dispatch_group_leave(group);
+                    });
+                    
+                    // Wait for execution to complete with timeout
+                    uint64_t timeoutNs = executionContext.m_timeout * 1000000ULL;
+                    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, timeoutNs);
+                    
+                    if (dispatch_group_wait(group, timeout) != 0) {
+                        resultError = "Script execution timed out in jailbroken mode";
+                        resultSuccess = false;
+                    }
+                }
             }
             
             // Process output

@@ -1,0 +1,241 @@
+name: Production iOS Dylib Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up build environment
+      run: |
+        echo "Setting up production build environment..."
+        
+        # Install dependencies
+        brew install cmake pkg-config
+        
+        # Create required directories
+        mkdir -p external/dobby/include
+        mkdir -p external/dobby/lib
+        mkdir -p output/Resources/AIData
+        mkdir -p output/Resources/Models
+        mkdir -p build
+        
+        # Remove any CI_BUILD definitions from source files
+        echo "Removing CI stubs and enabling production code..."
+        find source -type f \( -name "*.h" -o -name "*.hpp" -o -name "*.cpp" -o -name "*.mm" \) | xargs sed -i '' 's/#define CI_BUILD//g' 2>/dev/null || true
+        
+        # Check for proper implementation files - these should exist now
+        if [ ! -f "source/cpp/hooks/hooks.cpp" ]; then
+          echo "❌ Missing hooks.cpp implementation!"
+          exit 1
+        fi
+        
+        if [ ! -f "source/cpp/luau_fixes.h" ]; then
+          echo "❌ Missing luau_fixes.h compatibility layer!"
+          exit 1
+        fi
+        
+        echo "✅ All implementation files verified"
+
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Build Dobby
+      run: |
+        echo "Building Dobby from source..."
+        git clone --depth=1 https://github.com/jmpews/Dobby.git
+        cd Dobby
+        mkdir -p build && cd build
+        
+        # Configure with proper options for iOS
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DDOBBY_BUILD_SHARED_LIBRARY=OFF \
+          -DDOBBY_BUILD_STATIC_LIBRARY=ON \
+          -DDOBBY_DEBUG=OFF
+        
+        cmake --build . --config Release
+        
+        # Install Dobby to project
+        cp libdobby.a $GITHUB_WORKSPACE/external/dobby/lib/
+        cp -r ../include/* $GITHUB_WORKSPACE/external/dobby/include/
+        
+        cd $GITHUB_WORKSPACE
+        echo "✅ Dobby built successfully"
+
+    - name: Configure CMake
+      run: |
+        echo "Configuring CMake for production iOS build..."
+        
+        # Create production configuration
+        cmake -S . -B build \
+          -DCMAKE_OSX_ARCHITECTURES="arm64" \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="15.0" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_SYSTEM_NAME=iOS \
+          -DENABLE_AI_FEATURES=ON \
+          -DUSE_DOBBY=ON \
+          -DENABLE_LED_EFFECTS=ON \
+          -DENABLE_ANTI_DETECTION=ON
+        
+        echo "✅ CMake configured successfully"
+
+    - name: Build Dynamic Library
+      run: |
+        echo "Building production iOS dynamic library..."
+        
+        # Build with optimization
+        cmake --build build --config Release -j4
+        
+        # Check the build result
+        if [ -f "build/lib/libmylibrary.dylib" ]; then
+          echo "✅ Successfully built libmylibrary.dylib"
+          
+          # Copy to output directory
+          cp build/lib/libmylibrary.dylib output/
+          
+          # Copy resources
+          if [ -d "Resources" ]; then
+            cp -r Resources/* output/Resources/ 2>/dev/null || true
+          fi
+          
+          # Create default config if it doesn't exist
+          if [ ! -f "output/Resources/AIData/config.json" ]; then
+            echo '{
+              "version": "1.0.0",
+              "led_effects": true,
+              "ai_features": true,
+              "memory_optimization": true,
+              "anti_detection": true,
+              "bypass_methods": ["advanced", "webkit", "method_swizzling"],
+              "ui_theme": "cyberpunk"
+            }' > output/Resources/AIData/config.json
+          fi
+        else
+          echo "❌ Failed to build libmylibrary.dylib"
+          echo "=== Build directory contents ==="
+          find build -name "*.dylib" -o -name "*.a"
+          exit 1
+        fi
+
+    - name: Test and Verify
+      run: |
+        echo "Performing verification checks on the built library..."
+        
+        if [ ! -f "output/libmylibrary.dylib" ]; then
+          echo "❌ libmylibrary.dylib not found in output directory"
+          exit 1
+        fi
+        
+        # Check file type
+        file_info=$(file output/libmylibrary.dylib)
+        echo "File type: $file_info"
+        
+        # Check architecture
+        if [[ ! "$file_info" =~ "arm64" ]]; then
+          echo "❌ Library is not built for arm64 architecture!"
+          exit 1
+        fi
+        
+        # Check for exported symbols
+        echo "Checking exported symbols..."
+        nm -g output/libmylibrary.dylib | grep -E "luaopen_|dylib_|ExecuteScript" || {
+          echo "⚠️ No key symbols found - this might be a problem"
+        }
+        
+        # Check dependencies
+        echo "Checking dynamic dependencies..."
+        otool -L output/libmylibrary.dylib
+        
+        # Verify file size is reasonable (not a stub)
+        size=$(stat -f%z output/libmylibrary.dylib)
+        if [ $size -lt 100000 ]; then
+          echo "⚠️ Library file size is suspiciously small: $size bytes"
+        else
+          echo "✅ Library file size looks good: $size bytes"
+        fi
+        
+        echo "All verification checks completed"
+
+    - name: Package Release
+      run: |
+        echo "Packaging release..."
+        
+        # Create release directory
+        mkdir -p release
+        
+        # Copy library and resources
+        cp output/libmylibrary.dylib release/
+        cp -r output/Resources release/
+        
+        # Create README for the release
+        cat > release/README.txt << EOF
+# Roblox iOS Executor
+
+Version: 1.0.0
+Build Date: $(date)
+Architecture: arm64
+iOS Compatibility: 15.0+
+
+## Features
+- Lua script execution with Luau compatibility
+- Advanced UI with LED effects and draggable interface
+- Jailbreak detection bypass
+- Multiple execution methods for compatibility
+
+## Installation
+Copy libmylibrary.dylib to your device and inject using your preferred method.
+
+## Usage
+1. Launch Roblox
+2. Tap the floating button to open the executor
+3. Enter or paste your script in the editor
+4. Tap "Execute" to run the script
+
+For support, refer to the documentation.
+EOF
+        
+        # Create version info file
+        cat > release/version.json << EOF
+{
+  "version": "1.0.0",
+  "build_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "commit": "$(git rev-parse HEAD)",
+  "features": {
+    "led_effects": true,
+    "ai_features": true,
+    "jailbreak_bypass": true,
+    "loadstring_support": true
+  }
+}
+EOF
+        
+        # Create archive
+        cd release
+        zip -r ../ios-roblox-executor.zip *
+        cd ..
+        
+        echo "✅ Release package created successfully"
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ios-roblox-executor
+        path: |
+          output/libmylibrary.dylib
+          output/Resources/**
+          release/**
+          ios-roblox-executor.zip
