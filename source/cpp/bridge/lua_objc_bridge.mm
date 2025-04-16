@@ -1,6 +1,5 @@
 // Bridge implementation for safely communicating between Lua and Objective-C
-#include "lua_isolation.h"
-#include "objc_isolation.h"
+#include "bridge_interface.h"
 #include <string>
 #include <vector>
 
