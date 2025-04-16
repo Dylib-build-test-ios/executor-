@@ -113,19 +113,9 @@ namespace Implementation {
 #ifdef __APPLE__
         // Direct implementation for Apple platforms using Dobby
         if (target && replacement) {
-            // The DobbyHook function is defined in dobby.h which should be included for real builds
-            // For CI builds, we'll provide a simple implementation
-#ifdef CI_BUILD
-            // Simple stub implementation for CI builds
-            if (original) {
-                *original = target; // Just return the original address
-            }
-            return true;
-#else
-            // Use Dobby for real builds
+            // Use Dobby library for function hooking
             int result = DobbyHook(target, replacement, original);
             return (result == 0);
-#endif
         }
 #endif
         // Fallback implementation for other platforms or errors
@@ -138,16 +128,9 @@ namespace Implementation {
 #ifdef __APPLE__
         // Direct implementation for Apple platforms using Dobby
         if (target) {
-            // The DobbyDestroy function is defined in dobby.h which should be included for real builds
-            // For CI builds, we'll provide a simple implementation
-#ifdef CI_BUILD
-            // Simple stub implementation for CI builds
-            return true;
-#else
-            // Use Dobby for real builds
+            // Use Dobby library for function unhooking
             int result = DobbyDestroy(target);
             return (result == 0);
-#endif
         }
 #endif
         // Fallback implementation for other platforms or errors

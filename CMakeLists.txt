@@ -24,11 +24,14 @@ set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 set(DOBBY_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/external/dobby/include)
 set(DOBBY_LIBRARY ${CMAKE_SOURCE_DIR}/external/dobby/lib/libdobby.a)
 
-# For CI, use internal headers
+# Set Lua includes and libraries
 set(LUA_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/source/cpp/luau")
 set(LUA_LIBRARIES "")
+
+# Production build flags
 add_definitions(
-    -DCI_BUILD=1
+    -DPRODUCTION_BUILD=1
+    -DUSE_DOBBY=1
 )
 
 # Include directories 

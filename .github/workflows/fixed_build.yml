@@ -1,4 +1,4 @@
-name: Build Roblox Executor iOS Dynamic Library (Lua Fixes)
+name: Build Roblox Executor iOS Dynamic Library (Legacy)
 
 on:
   push:

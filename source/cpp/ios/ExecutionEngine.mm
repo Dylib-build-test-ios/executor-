@@ -231,10 +231,11 @@ namespace iOS {
                     
                     // Execute on a separate thread to avoid blocking
                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                        // Use local variables for thread safety
-                        std::string localOutput;
-                        bool localSuccess = false;
-                        std::string localError;
+                        // Use block variables for thread safety and modifiability in nested blocks
+                        __block std::string localOutput = "";
+                        __block bool localSuccess = false;
+                        __block std::string localError = "";
+                        __block bool executionAttempted = false;
                         
                         // Try WebKit approach first
                         @try {
