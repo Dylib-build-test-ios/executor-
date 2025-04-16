@@ -222,66 +222,77 @@ namespace iOS {
                     
                     // Execute on a separate thread to avoid blocking
                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                        // Initialize the execution integration with auto-select method
-                        std::shared_ptr<AdvancedBypass::ExecutionIntegration> executionIntegration = 
-                            std::make_shared<AdvancedBypass::ExecutionIntegration>(
-                                AdvancedBypass::ExecutionIntegration::Method::AutoSelect);
+                        // Use local variables for thread safety
+                        std::string localOutput;
+                        bool localSuccess = false;
+                        std::string localError;
                         
-                        if (executionIntegration->Initialize()) {
-                            // Set up output callback to capture output
-                            executionIntegration->SetOutputCallback([&resultOutput](const std::string& output) {
-                                resultOutput += output + "\n";
-                            });
+                        // Try to use an alternative execution approach
+                        if (@available(iOS 15.0, *)) {
+                            // Use JavaScript context for execution in newer iOS versions
+                            JSContext *context = [[JSContext alloc] init];
                             
-                            // Check if loadstring is needed for the script
-                            bool useLoadstring = preparedScript.find("loadstring") != std::string::npos ||
-                                               preparedScript.find("load(") != std::string::npos;
+                            // Set up console.log to capture output
+                            context[@"consoleLog"] = ^(NSString *message) {
+                                localOutput += [message UTF8String];
+                                localOutput += "\n";
+                            };
                             
-                            // Execute with appropriate method
-                            AdvancedBypass::ExecutionIntegration::ExecutionResult result;
+                            // Add console.log implementation
+                            [context evaluateScript:@"console = { log: function(msg) { consoleLog(msg); } }"];
                             
-                            if (useLoadstring) {
-                                // Use loadstring execution for scripts that require it
-                                result = executionIntegration->ExecuteWithLoadstring(
-                                    preparedScript, "ExecutionEngine_Script");
-                            } else {
-                                // Use regular execution for normal scripts
-                                result = executionIntegration->Execute(preparedScript);
-                            }
-                            
-                            // Process results
-                            resultSuccess = result.m_success;
-                            
-                            if (!result.m_error.empty()) {
-                                resultError = result.m_error;
-                            }
-                            
-                            if (!result.m_output.empty()) {
-                                resultOutput += result.m_output;
-                            }
-                            
-                            // Add method information
-                            resultOutput += "\n[Executed using: " + result.m_methodUsed + "]";
-                            
-                            // Log the execution
-                            std::cout << "ExecutionEngine: Jailbroken execution "
-                                      << (resultSuccess ? "succeeded" : "failed")
-                                      << " using method " << result.m_methodUsed
-                                      << " in " << result.m_executionTime << "ms" << std::endl;
-                            
-                            // Integrate HTTP functions if needed (for scripts that use HTTP API)
-                            if (preparedScript.find("http.") != std::string::npos && resultSuccess) {
-                                AdvancedBypass::IntegrateHttpFunctions(executionIntegration);
+                            @try {
+                                // Convert script to NSString
+                                NSString *scriptStr = [NSString stringWithUTF8String:preparedScript.c_str()];
+                                
+                                // Execute the script
+                                JSValue *result = [context evaluateScript:scriptStr];
+                                
+                                // Handle result
+                                if (![result isUndefined]) {
+                                    NSString *resultStr = [result toString];
+                                    localOutput += [resultStr UTF8String];
+                                    localSuccess = true;
+                                } else if (context.exception) {
+                                    localError = [[context.exception toString] UTF8String];
+                                    localSuccess = false;
+                                } else {
+                                    localSuccess = true;
+                                    localOutput += "[Script executed with no return value]";
+                                }
+                                
+                                // Add execution method info
+                                localOutput += "\n[Executed using: JSContext]";
+                            } @catch (NSException *exception) {
+                                localError = [[exception reason] UTF8String];
+                                localSuccess = false;
                             }
                         } else {
-                            // Failed to initialize execution integration
-                            resultSuccess = false;
-                            resultError = "Failed to initialize advanced execution methods";
-                            
-                            // Fall back to basic execution method for jailbroken devices
+                            // Fall back to older method for earlier iOS versions
                             try {
-                                // Create a simple execution context using Objective-C runtime
-                                Class luaClass = objc_getClass("Lua");
+                                // Create a simple execution context using available frameworks
+                                WebKit::WebView *webView = [[WebKit::WebView alloc] init];
+                                BOOL executeResult = [webView evaluateScript:[NSString stringWithUTF8String:preparedScript.c_str()]];
+                                
+                                if (executeResult) {
+                                    localSuccess = true;
+                                    localOutput = "Script executed in WebKit (iOS < 15.0)";
+                                } else {
+                                    localError = "Failed to execute script in WebKit";
+                                    localSuccess = false;
+                                }
+                                
+                                localOutput += "\n[Executed using: WebKit fallback]";
+                            } catch (const std::exception& e) {
+                                localError = std::string("Exception in fallback execution: ") + e.what();
+                                localSuccess = false;
+                            }
+                        }
+                        
+                        // Try alternative approach using Objective-C runtime if all else fails
+                        if (!localSuccess) {
+                            try {
+                                Class luaClass = objc_lookUpClass("Lua");
                                 if (luaClass) {
                                     SEL executeSelector = sel_registerName("executeScript:");
                                     if ([luaClass respondsToSelector:executeSelector]) {
@@ -289,26 +300,33 @@ namespace iOS {
                                         id result = [luaClass performSelector:executeSelector withObject:script];
                                         
                                         if (result) {
-                                            resultSuccess = true;
+                                            localSuccess = true;
                                             if ([result isKindOfClass:[NSString class]]) {
-                                                resultOutput = [(NSString*)result UTF8String];
+                                                localOutput = [(NSString*)result UTF8String];
                                             } else {
-                                                resultOutput = "Script executed successfully (no output)";
+                                                localOutput = "Script executed successfully (no output)";
                                             }
+                                            localOutput += "\n[Executed using: ObjC Runtime]";
                                         } else {
-                                            resultError = "Script execution failed with Lua class";
+                                            localError = "Script execution failed with Lua class";
                                         }
                                     } else {
-                                        resultError = "Lua class does not implement executeScript method";
+                                        localError = "Lua class does not implement executeScript method";
                                     }
                                 } else {
-                                    resultError = "Lua class not found";
+                                    localError = "Lua class not found";
                                 }
                             } catch (const std::exception& e) {
-                                // Handle exceptions from fallback method
-                                resultError = std::string("Exception in fallback execution: ") + e.what();
+                                if (localError.empty()) {
+                                    localError = std::string("Exception in fallback execution: ") + e.what();
+                                }
                             }
                         }
+                        
+                        // Update the shared result variables in a thread-safe way
+                        resultSuccess = localSuccess;
+                        resultError = localError;
+                        resultOutput = localOutput;
                         
                         dispatch_group_leave(group);
                     });

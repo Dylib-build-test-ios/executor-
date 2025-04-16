@@ -1,13 +1,24 @@
+// Define this so the header knows we're implementing the static members
+#define HOOKS_CPP_IMPL
 #include "hooks.hpp"
-#include "../dobby_wrapper.cpp"
+#include "../dobby_defs.h"
 #include <iostream>
 #include <string>
 #include <cassert>
 
 #ifdef __APPLE__
-#include <objc/runtime.h>
 #include <objc/message.h>
 #endif
+
+// Initialize static members
+std::unordered_map<void*, void*> Hooks::HookEngine::s_hookedFunctions;
+std::mutex Hooks::HookEngine::s_hookMutex;
+#ifdef __APPLE__
+std::map<std::string, std::pair<Class, SEL>> Hooks::ObjcMethodHook::s_hookedMethods;
+#else
+std::map<std::string, std::pair<void*, void*>> Hooks::ObjcMethodHook::s_hookedMethods;
+#endif
+std::mutex Hooks::ObjcMethodHook::s_methodMutex;
 
 namespace Hooks {
 
@@ -98,24 +109,28 @@ void HookEngine::ClearAllHooks() {
 namespace Implementation {
     // Hook function implementation using Dobby
     bool HookFunction(void* target, void* replacement, void** original) {
-        // Use DobbyWrapper for the actual hooking
-        void* originalFunc = DobbyWrapper::Hook(target, replacement);
-        
-        if (originalFunc) {
-            // If the caller wants the original function pointer, provide it
-            if (original) {
-                *original = originalFunc;
-            }
-            return true;
-        }
-        
+        // Use Dobby directly for hooking
+#ifdef USE_DOBBY
+        int result = DobbyHook(target, replacement, original);
+        return result == 0;
+#else
+        // Fallback implementation
+        std::cerr << "HookFunction: Dobby not available, hook failed" << std::endl;
         return false;
+#endif
     }
     
     // Unhook function implementation using Dobby
     bool UnhookFunction(void* target) {
-        // Use DobbyWrapper for the actual unhooking
-        return DobbyWrapper::Unhook(target);
+        // Use Dobby directly for unhooking
+#ifdef USE_DOBBY
+        int result = DobbyDestroy(target);
+        return result == 0;
+#else
+        // Fallback implementation
+        std::cerr << "UnhookFunction: Dobby not available, unhook failed" << std::endl;
+        return false;
+#endif
     }
 }
 
@@ -156,11 +171,11 @@ bool ObjcMethodHook::HookMethod(const std::string& className, const std::string&
     }
     
     // Get the original implementation
-    HookIMP originalImp = method_getImplementation(method);
+    IMP originalImp = method_getImplementation(method);
     
     // Store original implementation if requested
     if (originalFn) {
-        *originalFn = originalImp;
+        *originalFn = (void*)originalImp;
     }
     
     // Replace the implementation
