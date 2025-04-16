@@ -14,12 +14,8 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-// Define CI_BUILD for CI environment
-#ifndef CI_BUILD
-#ifdef __APPLE__
-#define CI_BUILD 1
-#endif
-#endif
+// Production build flag
+#define PRODUCTION_BUILD 1
 
 namespace iOS {
     // Constructor
